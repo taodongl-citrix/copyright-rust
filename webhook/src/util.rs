@@ -1,83 +1,154 @@
-use std::{sync::RwLock};
-// use sha2::Sha256;
-// use sha2::Digest;
+use axum::extract::State;
+use axum::http::{Request, StatusCode};
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
+use tokio::sync::OnceCell;
+use std::borrow::Borrow;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::Hasher;
+use std::path::PathBuf;
+use std::sync::RwLock;
 
-pub struct Barrel {
-    items: RwLock<Vec<u64>>
+static GLOBAL_DATA: RwLock<Vec<u64>> = RwLock::new(Vec::new());
+
+pub fn protect_enter(scm: &str, project: &str, repository: &str, id: u32) -> bool {
+    let key = get_key(scm, id, project, repository);
+    {
+        let found = GLOBAL_DATA.read().unwrap().iter().any(|x| *x == key);
+        // tracing::info!("key is {}, found: {}", key, found);
+        if found {
+            return false;
+        }
+    }
+    {
+        GLOBAL_DATA.write().unwrap().push(key);
+        // tracing::info!("add key is {}", key);
+    }
+    true
 }
 
-fn get_key(id: u32, project: &str, repository: &str, branch: &str) -> u64 {
-    let key = format!("{}-{}-{}-{}", id, project, repository, branch);
+pub fn protect_leave(scm: &str, project: &str, repository: &str, id: u32) {
+    let key = get_key(scm, id, project, repository);
+    let mut item = GLOBAL_DATA.write().unwrap();
+    let index = item.iter().position(|x| *x == key);
+    if let Some(idx) = index {
+        item.remove(idx);
+    }
+}
+
+fn get_key(scm: &str, id: u32, project: &str, repository: &str) -> u64 {
+    let key = format!("{}-{}-{}-{}", scm, id, project, repository);
     let mut s = DefaultHasher::new();
     s.write(&key.as_bytes());
     s.finish()
-    // let mut hasher = Sha256::new();
-    // hasher.update(key.as_bytes());
-    // let result = hasher.finalize();
-    // format!("{:x}", result)
 }
 
-impl Barrel {
-    const fn new() -> Barrel {
-        Barrel { 
-            items: RwLock::new(vec![])
+static WORK_DIR: OnceCell<PathBuf> = OnceCell::const_new();
+
+async fn get_work_dir() -> PathBuf {
+    let path = std::env::current_exe().unwrap();
+    let folder = path.parent().unwrap();
+    let data = folder.join("data");
+    if !data.is_dir() {
+        let ret = tokio::fs::create_dir(data).await;
+        if let Err(e) = ret {
+            tracing::error!("{:?}", e);
         }
     }
-
-    pub fn try_put(&self, id: u32, project: &str, repository: &str, branch: &str) -> Result<(), &'static str>{
-        let key = get_key(id, project, repository, branch);
-        let found = self.find(key);
-        if found {
-            return Err("duplicated");
-        }
-        self.add(key);
-        Ok(())
-    }
-
-    fn find(&self, key: u64) -> bool {
-        let item = self.items.read().unwrap();
-        item.iter().any(|x| *x == key)
-    }
-
-    fn add(&self, key: u64) {
-        let mut item = self.items.write().unwrap();
-        item.push(key);
-    }
-
-    pub fn remove(&self, id: u32, project: &str, repository: &str, branch: &str) {
-        let key = get_key(id, project, repository, branch);
-        let mut item = self.items.write().unwrap();
-        let index = item.iter().position(|x| *x == key);
-        if let Some(idx) = index {
-            item.remove(idx);
-        }
-        return;
-    }
+    folder.to_path_buf()
 }
-pub const GLOBAL_BARREL: Barrel = Barrel::new();
 
-pub async fn run_command(username: &str,
-                         password: &str,
-                         id: u32,
-                         project_to: &str,
-                         repository_to: &str,
-                         branch_to: &str,
-                         commit_to: &str,
-                         project_from: &str,
-                         repository_from: &str,
-                         branch_from: &str,
-                         commit_from: &str,) {
-    let mut command = tokio::process::Command::new("ls");
+pub async fn run_command(
+    username: &str,
+    password: &str,
+    id: u32,
+    project: &str,
+    repository: &str,
+    scm: &str,
+) {
+    let dir = WORK_DIR.get_or_init(get_work_dir).await;
+    
+    let mut command = tokio::process::Command::new(
+        dir.join("work"),
+    );
     command
-        .env("USERNAME", username)
-        .env("PASSWORD", password);
+        .env("GIT_USERNAME", username)
+        .env("GIT_PASSWORD", password)
+        .env(
+            "GIT_ASKPASS",
+            dir.join("askpass.sh"),
+        )
+        .args([
+            format!("--project={}", project),
+            format!("--repository={}", repository),
+            format!("--id={}", id),
+            format!("--scm={}", scm),
+        ])
+        .current_dir(dir.join("data"));
     let mut proc = command.spawn().unwrap();
     let ret = proc.wait().await;
     match ret {
-        Ok(_) => tracing::trace!("program ran ok"),
-        Err(e) => tracing::info!("program ran with error {:?}", e),
+        Ok(_) => tracing::debug!(
+            "project: {}, repository: {}, id: {} is completed",
+            project,
+            repository,
+            id
+        ),
+        Err(e) => tracing::debug!(
+            "project: {}, repository: {}, id: {} ran with error {:?}",
+            project,
+            repository,
+            id,
+            e
+        ),
     }
-    GLOBAL_BARREL.remove(id, project_to, repository_to, branch_to);
+    protect_leave(scm, project, repository, id);
+}
+
+fn check_signature(
+    signature: &str,
+    data: &[u8],
+    secret: &[u8],
+) -> Result<(), (StatusCode, String)> {
+    let mut hmac = Hmac::<Sha256>::new_from_slice(secret)
+        .map_err(|err| (StatusCode::FORBIDDEN, err.to_string()))?;
+    hmac.update(data);
+    let verify = format!("{:x}", hmac.finalize().into_bytes());
+    if verify != signature {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "signature isn't verified".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+pub async fn signature_middleware(
+    State(secret): State<Vec<u8>>,
+    req: Request<hyper::Body>,
+    next: Next<hyper::Body>,
+) -> Result<impl IntoResponse, Response> {
+    if secret.is_empty() {
+        return Ok(next.run(req).await);
+    }
+    let (parts, body) = req.into_parts();
+    let bytes = hyper::body::to_bytes(body)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())?;
+    let hdr = parts
+        .headers
+        .get("X-Hub-Signature-256")
+        .ok_or((StatusCode::FORBIDDEN, "'X-Hub-Signature-256': not found").into_response())?;
+    let message = hdr
+        .to_str()
+        .map_err(|e| (StatusCode::FORBIDDEN, e.to_string()).into_response())?;
+    let signature = message
+        .strip_prefix("sha256=")
+        .ok_or((StatusCode::FORBIDDEN, "signature is wrong format").into_response())?;
+    check_signature(&signature.to_lowercase(), bytes.borrow(), &secret)
+        .map_err(|e| e.into_response())?;
+    let request = Request::from_parts(parts, hyper::Body::from(bytes));
+    Ok(next.run(request).await)
 }

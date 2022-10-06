@@ -1,0 +1,7 @@
+/*
+ * Copyright © Citrix Systems, Inc.  All rights reserved.
+ *
+ * You may not use, copy, or distribute this software without a valid written license from Citrix.
+ * You shall not modify, adapt, translate, or create derivative works based upon this software.
+ * If you received this file in error, please immediately notify sourcecodelicensing@citrix.com.
+ */

@@ -1,1 +1,5 @@
 /target
+/.idea
+*.http
+*.py
+vcs.xml

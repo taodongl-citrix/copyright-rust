@@ -3,3 +3,5 @@ members = [
     "webhook",
     "work"
 ]
+[profile.release]
+strip = true

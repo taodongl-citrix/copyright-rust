@@ -1,0 +1,9 @@
+/*
+ * Copyright © Citrix Systems, Inc.  All rights reserved.
+ *
+ * CITRIX CONFIDENTIAL – THIS IS PROPRIETARY SOFTWARE OF CITRIX SYSTEMS, INC. and includes Citrix trade secrets.
+ * This software is fully protected under copyright and trade secret laws.
+ * You may not use, copy, or distribute this software without a valid written license from Citrix.
+ * You shall not modify, adapt, translate, or create derivative works based upon this software.
+ * If you received this file in error, please immediately notify sourcecodelicensing@citrix.com.
+ */
