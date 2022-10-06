@@ -10,9 +10,6 @@ use crate::Handler;
 use super::models::{BAD_COMMENT, GOOD_COMMENT};
 
 pub struct Bitbucket {
-    pub project: String,
-    pub repository: String,
-    pub id: u32,
     client: Client,
     base_url: String,
 }
@@ -46,9 +43,6 @@ impl Bitbucket {
             .build()
             .unwrap();
         Bitbucket {
-            project: project.to_string(),
-            repository: repository.to_string(),
-            id,
             client: client.to_owned(),
             base_url: format!("https://code-dev.do.citrite.net/rest/api/1.0/projects/{}/repos/{}/pull-requests/{}", &project, &repository, id),
         }
@@ -128,11 +122,7 @@ impl Bitbucket {
 
     fn create_comment(&self, positive: bool) -> anyhow::Result<()> {
         let url = format!("{baseUrl}/comments", baseUrl = self.base_url);
-        let message = if positive {
-            BAD_COMMENT
-        } else {
-            GOOD_COMMENT
-        };
+        let message = if positive { BAD_COMMENT } else { GOOD_COMMENT };
         let body = json!({ "text": message });
         //let resp = self.client.post(&url).json(&Comment{text: message.to_string()}).send()?;
         let resp = self.client.post(&url).json(&body).send()?;
@@ -145,16 +135,16 @@ impl Bitbucket {
 }
 
 impl Handler for Bitbucket {
-    fn execute(&mut self) -> anyhow::Result<()> {
+    fn execute(&mut self, project: &str, repository: &str, id: u32) -> anyhow::Result<()> {
         let files = self.get_changed_files()?;
         git_fetch(
             &files,
             &format!(
                 "https://code-dev.do.citrite.net/scm/{project}/{repo}.git",
-                project = self.project,
-                repo = self.repository
+                project = project,
+                repo = repository
             ),
-            self.id,
+            id,
         )?;
         let yes = scan()?;
         let comment_opt = self.get_comment()?;

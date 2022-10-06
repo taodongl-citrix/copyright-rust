@@ -9,9 +9,6 @@ use serde::Serialize;
 use std::ops::Deref;
 
 pub struct Github {
-    project: String,
-    repository: String,
-    id: u32,
     client: Client,
 }
 #[derive(Debug, Serialize, Deserialize)]
@@ -41,7 +38,7 @@ impl Clone for Comment {
 }
 
 impl Github {
-    pub fn new(project: &str, repository: &str, id: u32) -> Github {
+    pub fn new() -> Github {
         let token = std::env::var("GIT_PASSWORD").expect("GIT_PASSWORD is not set");
         let mut header = reqwest::header::HeaderMap::new();
         header.insert(
@@ -62,14 +59,11 @@ impl Github {
             .build()
             .unwrap();
         Github {
-            project: project.to_string(),
-            repository: repository.to_string(),
-            id,
             client: client.to_owned(),
         }
     }
 
-    fn get_pull_request(&self) -> anyhow::Result<PullRequest> {
+    fn get_pull_request(&self, project: &str, repository: &str, id: u32) -> anyhow::Result<PullRequest> {
         let mut template = tera::Tera::default();
         let mut files: Vec<String> = Vec::new();
         let mut comments: Vec<Comment> = Vec::new();
@@ -80,9 +74,9 @@ impl Github {
             let mut context = tera::Context::new();
             context.insert("file_after", &file_after);
             context.insert("comment_after", &comment_after);
-            context.insert("project", &self.project);
-            context.insert("repository", &self.repository);
-            context.insert("number", &format!("{}", self.id));
+            context.insert("project", project);
+            context.insert("repository", repository);
+            context.insert("number", &format!("{}", id));
             let body = template.render_str(GITHUB_QUERY, &context)?;
             let resp: Response = self
                 .client
@@ -193,16 +187,16 @@ impl Github {
 }
 
 impl Handler for Github {
-    fn execute(&mut self) -> anyhow::Result<()> {
-        let pull_request = self.get_pull_request()?;
+    fn execute(&mut self, project: &str, repository: &str, id: u32) -> anyhow::Result<()> {
+        let pull_request = self.get_pull_request(project, repository, id)?;
         git_fetch(
             &pull_request.files,
             &format!(
                 "https://github.com/{project}/{repo}.git",
-                project = self.project,
-                repo = self.repository
+                project = project,
+                repo = repository
             ),
-            self.id,
+            id,
         )?;
         let yes = scan()?;
         if yes && pull_request.comment.is_none() {

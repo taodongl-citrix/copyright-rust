@@ -2,6 +2,7 @@ use crate::action::{COPYRIGHT_CSHARP, COPYRIGHT_JS};
 use rayon::prelude::*;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs::OpenOptions;
 use std::io::Read;
 use std::path::PathBuf;
@@ -12,6 +13,7 @@ struct Filter {
 }
 
 pub struct Detector {
+    copyright_matches: HashMap<&'static str, Regex>,
     filters: Vec<glob::Pattern>,
     workspace: PathBuf,
 }
@@ -37,7 +39,15 @@ impl Detector {
                 }
             }
         }
-        Detector { workspace, filters }
+        let copyright_matches = HashMap::from([
+            ("cs", create_copyright_reg(COPYRIGHT_CSHARP)),
+            ("js", create_copyright_reg(COPYRIGHT_JS)),
+        ]);
+        Detector {
+            workspace,
+            filters,
+            copyright_matches,
+        }
     }
 
     pub fn scan(&self) -> anyhow::Result<bool> {
@@ -51,7 +61,7 @@ impl Detector {
                 files.push(entry.path().to_path_buf());
             }
         }
-        let number: i32 = files.par_iter().map(parse).sum();
+        let number: i32 = files.par_iter().map(|x| self.parse(x)).sum();
         Ok(number > 0)
     }
 
@@ -83,30 +93,21 @@ impl Detector {
             None => false,
         }
     }
-}
-
-fn parse(path: &PathBuf) -> i32 {
-    let ext = path.extension().unwrap();
-    if ext == "cs" {
-        return parse_file_with_language(&path, COPYRIGHT_CSHARP);
-    } else if ext == "js" {
-        return parse_file_with_language(&path, COPYRIGHT_JS);
-    }
-    0
-}
-
-fn parse_file_with_language(file: &PathBuf, copyright: &str) -> i32 {
-    let reg_str = format!("^{}", copyright.replace("\n", r"[ \r\n]+"));
-    let pattern = Regex::new(&reg_str).unwrap();
-    match parse_file(file, &pattern) {
-        Ok(found) => {
-            if found {
-                return 1;
+    fn parse(&self, path: &PathBuf) -> i32 {
+        let ext = path.extension().unwrap().to_str().unwrap();
+        if ["cs", "js"].contains(&ext) {
+            let ret = parse_file(&path, self.copyright_matches.get(ext).unwrap());
+            match ret {
+                Ok(found) => {
+                    if found {
+                        return 1;
+                    }
+                }
+                Err(err) => tracing::error!("{}", err),
             }
         }
-        Err(err) => tracing::error!("{}", err),
+        0
     }
-    return 0;
 }
 
 fn parse_file(file: &PathBuf, pattern: &Regex) -> anyhow::Result<bool> {
@@ -131,4 +132,14 @@ fn parse_file(file: &PathBuf, pattern: &Regex) -> anyhow::Result<bool> {
         return Ok(false);
     }
     Ok(true)
+}
+
+fn create_copyright_reg(content: &str) -> Regex {
+    let reg_str = content
+        .lines()
+        .into_iter()
+        .map(|line| format!("{}\\s*\\n", line))
+        .collect::<Vec<String>>()
+        .join("\n");
+    Regex::new(&reg_str).unwrap()
 }

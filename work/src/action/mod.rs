@@ -6,7 +6,7 @@ mod models;
 const SUPPORT_FILE_TYPES: &'static [&str] = &["cs", "java", "ts", "js"];
 
 pub trait Handler {
-    fn execute(&mut self) -> anyhow::Result<()>;
+    fn execute(&mut self, project: &str, repository: &str, id: u32) -> anyhow::Result<()>;
 }
 
 pub use bitbucket::Bitbucket;

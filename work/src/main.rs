@@ -52,11 +52,7 @@ fn main() -> anyhow::Result<()> {
     );
     let _span_handle = span.enter();
     let handler: Option<Box<dyn Handler>> = match args.scm {
-        ScmType::Github => Some(Box::new(Github::new(
-            &args.project,
-            &args.repository,
-            args.id,
-        ))),
+        ScmType::Github => Some(Box::new(Github::new())),
         ScmType::Bitbucket => Some(Box::new(Bitbucket::new(
             &args.project,
             &args.repository,
@@ -73,7 +69,7 @@ fn main() -> anyhow::Result<()> {
                 .expect("failed to execute 'git init'");
             std::env::set_current_dir(&workspace.0).expect(&workspace.0.to_str().unwrap());
             tracing::info!("start in {}", &workspace.0.as_os_str().to_str().unwrap());
-            h.execute()
+            h.execute(&args.project, &args.repository, args.id)
         }
         None => Err(anyhow::anyhow!("nothing")),
     }
