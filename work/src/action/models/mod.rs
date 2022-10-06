@@ -12,4 +12,5 @@ pub use bitbucket::BitbucketChangesPayload;
 pub use bitbucket::BitbucketActivitiesPayload;
 pub use bitbucket::BitbucketPagePayload;
 
-pub const SLOGAN: &'static str = "COPYRIGHT is missing";
+pub const BAD_COMMENT: &'static str = "Copyright is missing - reported by CICD";
+pub const GOOD_COMMENT: &'static str = "Copyright is OK - reported by CICD";

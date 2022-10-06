@@ -1,3 +1,7 @@
+import com.atlassian.bitbucket.event.pull.PullRequestOpenedEvent
+import com.atlassian.bitbucket.event.pull.PullRequestRescopedEvent
+import com.atlassian.bitbucket.event.pull.PullRequestReopenedEvent
+
 import groovy.transform.Field
 import java.nio.charset.StandardCharsets
 import org.apache.http.client.config.RequestConfig
@@ -10,8 +14,10 @@ import groovy.json.JsonOutput
 
 @Field def SECRET = "0143207be7c417eb8444a552d78b61deffa64efd"
 
-def trigger = new ScannerTrigger(event.pullRequest, SECRET)
-trigger.execute()
+if (event instanceof PullRequestOpenedEvent || event instanceof PullRequestRescopedEvent || event instanceof PullRequestReopenedEvent) {
+    def trigger = new ScannerTrigger(event.pullRequest, SECRET)
+    trigger.execute()
+}
 
 class ScannerTrigger {
     String payload

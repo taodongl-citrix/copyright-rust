@@ -1,9 +1,13 @@
-use reqwest::blocking::{Client};
+use reqwest::blocking::Client;
 use serde_json::json;
 // use serde::{Serialize, Deserialize};
+use crate::action::models::{
+    BitbucketActivitiesPayload, BitbucketChangesPayload, BitbucketPagePayload,
+};
 use crate::action::{git_fetch, scan};
-use crate::action::models::{BitbucketActivitiesPayload, BitbucketChangesPayload, BitbucketPagePayload};
 use crate::Handler;
+
+use super::models::{BAD_COMMENT, GOOD_COMMENT};
 
 pub struct Bitbucket {
     pub project: String,
@@ -25,10 +29,18 @@ impl Bitbucket {
         let auth = format!("{}:{}", username, password);
         let mut header = reqwest::header::HeaderMap::new();
         let basic_auth = format!("Basic {}", base64::encode(&auth));
-        header.insert(reqwest::header::AUTHORIZATION,
-                      reqwest::header::HeaderValue::from_str(&basic_auth).unwrap());
-        header.insert(reqwest::header::ACCEPT, reqwest::header::HeaderValue::from_static("application/json"));
-        header.insert(reqwest::header::CONTENT_TYPE, reqwest::header::HeaderValue::from_static("application/json"));
+        header.insert(
+            reqwest::header::AUTHORIZATION,
+            reqwest::header::HeaderValue::from_str(&basic_auth).unwrap(),
+        );
+        header.insert(
+            reqwest::header::ACCEPT,
+            reqwest::header::HeaderValue::from_static("application/json"),
+        );
+        header.insert(
+            reqwest::header::CONTENT_TYPE,
+            reqwest::header::HeaderValue::from_static("application/json"),
+        );
         let client = reqwest::blocking::ClientBuilder::new()
             .default_headers(header)
             .build()
@@ -75,7 +87,8 @@ impl Bitbucket {
             let resp = self.client.get(&url).send()?;
             if resp.status().is_success() {
                 let payload: BitbucketPagePayload = resp.json()?;
-                let activities: Vec<BitbucketActivitiesPayload> = serde_json::from_value(payload.values)?;
+                let activities: Vec<BitbucketActivitiesPayload> =
+                    serde_json::from_value(payload.values)?;
                 for value in activities.iter() {
                     if let Some(comment) = &value.comment {
                         if comment.text.ends_with("reported by CICD") {
@@ -99,7 +112,12 @@ impl Bitbucket {
     }
 
     fn delete_comment(&self, id: i32, version: i32) -> anyhow::Result<()> {
-        let url = format!("{baseUrl}/comments/{id}?version={version}", baseUrl = self.base_url, id = id, version = version);
+        let url = format!(
+            "{baseUrl}/comments/{id}?version={version}",
+            baseUrl = self.base_url,
+            id = id,
+            version = version
+        );
         let resp = self.client.delete(&url).send()?;
         if resp.status().is_success() {
             Ok(())
@@ -110,8 +128,12 @@ impl Bitbucket {
 
     fn create_comment(&self, positive: bool) -> anyhow::Result<()> {
         let url = format!("{baseUrl}/comments", baseUrl = self.base_url);
-        let message = if positive { "Copyright is missing - reported by CICD" } else { "Copyright is OK - reported by CICD" };
-        let body = json!({"text": message});
+        let message = if positive {
+            BAD_COMMENT
+        } else {
+            GOOD_COMMENT
+        };
+        let body = json!({ "text": message });
         //let resp = self.client.post(&url).json(&Comment{text: message.to_string()}).send()?;
         let resp = self.client.post(&url).json(&body).send()?;
         if resp.status().is_success() {
@@ -120,13 +142,20 @@ impl Bitbucket {
             Err(anyhow::anyhow!(resp.status().to_string()))
         }
     }
-
 }
 
 impl Handler for Bitbucket {
     fn execute(&mut self) -> anyhow::Result<()> {
         let files = self.get_changed_files()?;
-        git_fetch(&files, &format!("https://code-dev.do.citrite.net/scm/{project}/{repo}.git", project=self.project, repo=self.repository), self.id)?;
+        git_fetch(
+            &files,
+            &format!(
+                "https://code-dev.do.citrite.net/scm/{project}/{repo}.git",
+                project = self.project,
+                repo = self.repository
+            ),
+            self.id,
+        )?;
         let yes = scan()?;
         let comment_opt = self.get_comment()?;
         if let Some(comment) = comment_opt {

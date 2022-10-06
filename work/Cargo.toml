@@ -15,6 +15,7 @@ regex = "1.6.0"
 reqwest = { version = "0.11.12", features = ["blocking", "json"] }
 serde = { version = "1.0.145", features = ["derive"] }
 serde_json = "1.0.85"
+serde_yaml = "0.9.13"
 tera = "1.17.1"
 tracing = "0.1.36"
 tracing-subscriber = { version = "0.3.15" }
